@@ -228,6 +228,7 @@ void Throttle_Update(Throttle_t *thr, float angle_deg, uint8_t angle_valid)
     travel = (float)thr->direction * Wrap180(angle_deg - thr->closed_deg);
     thr->travel_deg = travel;
 
+    // Nếu ngoài hành trình cơ khí (lệch nam châm, gãy cơ khí...) thì không cho phép dùng
     if ((travel < -thr->cfg.range_margin_deg) ||
         (travel > (thr->span_deg + thr->cfg.range_margin_deg)))
     {
@@ -241,15 +242,17 @@ void Throttle_Update(Throttle_t *thr, float angle_deg, uint8_t angle_valid)
         return;
     }
 
+    // Tính phần trăm hành trình (0..100) chưa tính vùng chết
     raw = Clamp((travel / thr->span_deg) * 100.0f, 0.0f, 100.0f);
 
+    // Tính phần trăm hành trình (0..100) đã tính vùng chết
     lo  = thr->cfg.dead_low_percent;
     hi  = thr->cfg.dead_high_percent;
     pos = Clamp(((raw - lo) / (100.0f - lo - hi)) * 100.0f, 0.0f, 100.0f);
 
     thr->raw_percent       = raw;
     thr->position_percent  = pos;
-    thr->position_permille = (uint16_t)((pos * 10.0f) + 0.5f);
+    thr->position_permille = (uint16_t)((pos * 10.0f) + 0.5f);  //
     thr->state             = THR_READY;
     thr->valid             = 1U;
 }

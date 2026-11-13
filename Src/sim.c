@@ -30,6 +30,7 @@ static double ut_us = 3.0;         /* UT thực của cảm biến (có sai số
 static double jitter_us = 0.0;
 static int sync_like_pauses = 0;
 
+// Cạnh xuống giả lập (ISR) -> gọi TLE5014_EdgeIRQ() để mô phỏng ngắt
 static void edge(void){
     double j = ((rand()/(double)RAND_MAX)*2.0-1.0)*jitter_us;
     g_tim4.CNT = (uint16_t)(uint32_t)((t_us + j)*4.0);   /* 4 tick/us */
@@ -62,31 +63,37 @@ static int fails=0;
 static void run_normal(int frames, double ut, double jit, const char *name){
     ut_us=ut; jitter_us=jit; srand(1);
     TLE5014_Init(&h,NULL);
-    t_us=1000; sync_like_pauses=0; g_pin=GPIO_PIN_SET;
+    t_us=1000; 
+    sync_like_pauses=0; 
+    g_pin=GPIO_PIN_SET;
     edge();                                   /* cạnh đầu tiên */
     int ok=0, bad=0; uint8_t rc=7;
+
+    // Gửi nhiều frame liên tiếp, Task() chạy sau mỗi frame, kiểm tra góc hợp lệ
     for(int i=0;i<frames;i++){
         uint16_t ang = 1 + (rand()%4088);
         send_frame(ang, rc, 0, 0, -1, 0);
         TLE5014_Task(&h);                      /* Task chạy sau mỗi frame (nhanh) */
-        TLE5014_Angle_t a; TLE5014_Status_t st = TLE5014_ReadAngle(TLE5014_CHANNEL_1,&a);
-        if(st==TLE5014_OK && a.raw_angle==ang && a.rolling_counter==rc) ok++; else bad++;
+        TLE5014_Angle_t a; 
+        TLE5014_Status_t st = TLE5014_ReadAngle(TLE5014_CHANNEL_1,&a);
+        if(st==TLE5014_OK && a.raw_angle==ang && a.rolling_counter==rc) ok++; 
+        else bad++;
         rc++;
     }
-    printf("[%s] frames=%d ok=%d bad=%d sync_like_pause=%d | cap=%u resync=%u nibErr=%u crcErr=%u rollErr=%u overrun=%u\n",
+    printf("\n[%s] \nframes=%d ok=%d bad=%d sync_like_pause=%d | cap=%u resync=%u nibErr=%u crcErr=%u rollErr=%u overrun=%u\n",
         name, frames, ok, bad, sync_like_pauses, tle5014_sent_debug.frames_captured, tle5014_sent_debug.resyncs,
         tle5014_sent_debug.nibble_errors, tle5014_sent_debug.crc_errors, tle5014_sent_debug.rolling_errors, tle5014_sent_debug.overruns);
     /* frame đầu tiên không thể bắt được (chưa có cạnh tham chiếu đầy đủ) -> cho phép thiếu 1-2 frame đầu */
-    CHECK(bad<=2, "quá nhiều frame lỗi");
+    CHECK(bad<=2, "qua nhieu frame loi");
 }
 
 int main(void){
     g_rcc.CFGR = 0x400;   /* APB1 chia 2 -> timer = 72 MHz */
-    run_normal(3000, 3.0,  0.0, "UT 3.00us, không jitter ");
+    run_normal(3000, 3.0,  0.0, "UT 3.00us, khong jitter ");
     run_normal(3000, 3.15, 0.0, "UT +5% clock          ");
     run_normal(3000, 2.85, 0.0, "UT -5% clock          ");
-    run_normal(3000, 3.0,  0.4, "jitter ±0.4us          ");
-    run_normal(3000, 3.15, 0.4, "UT +5% & jitter ±0.4us ");
+    run_normal(3000, 3.0,  0.4, "jitter (cong/tru) 0.4us          ");
+    run_normal(3000, 3.15, 0.4, "UT +5% & jitter (cong/tru) 0.4us ");
 
     /* ---- Kịch bản lỗi ---- */
     printf("\n== Kich ban loi ==\n");
@@ -143,7 +150,7 @@ int main(void){
     send_frame(2048, rc++, 0,0,-1,0); TLE5014_Task(&h);
     send_frame(4091, rc++, 0,0,-1,0); TLE5014_Task(&h);
     st=TLE5014_ReadAngle(TLE5014_CHANNEL_1,&a);
-    printf("mã 4091: ReadAngle=%d\n", st);
+    printf("ma 4091: ReadAngle=%d\n", st);
     CHECK(st==TLE5014_SENSOR_ERROR,"4091 -> SENSOR_ERROR");
     send_frame(2048, rc++, 0,0,-1,0); TLE5014_Task(&h);
 
