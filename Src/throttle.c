@@ -308,3 +308,87 @@ uint8_t Throttle_AvgGet(const Throttle_Avg_t *avg, float *angle_deg)
     *angle_deg = deg;
     return 1U;
 }
+
+/* ---------------------------------------------------------------------------
+ *  Lấy mẫu hiệu chỉnh không chặn
+ * ------------------------------------------------------------------------- */
+void Throttle_CalBegin(Throttle_Cal_t *cal, Throttle_Point_t point, uint16_t samples,
+                       uint32_t interval_ms, uint32_t timeout_ms, uint32_t now_ms)
+{
+    memset(cal, 0, sizeof(*cal));
+    Throttle_AvgReset(&cal->avg);
+    cal->point          = point;
+    cal->samples_needed = (samples == 0U) ? 1U : samples;
+    cal->interval_ms    = interval_ms;
+    cal->timeout_ms     = timeout_ms;
+    cal->start_ms       = now_ms;
+    cal->last_ms        = now_ms - interval_ms;     /* mẫu đầu lấy ngay */
+    cal->state          = THR_CALSTEP_SAMPLING;
+    cal->result         = THR_CAL_NOT_READY;
+ 
+    /* Tham số bất khả thi: timeout không đủ để lấy hết số mẫu (mẫu đầu lấy ngay, mẫu cuối
+     * ở (samples-1)*interval). Báo lỗi ngay thay vì để TIMEOUT sau vài trăm ms. */
+    if (((uint64_t)(cal->samples_needed - 1U) * (uint64_t)interval_ms) >= (uint64_t)timeout_ms)
+    {
+        cal->state  = THR_CALSTEP_FAILED;
+        cal->result = THR_CAL_BAD_INPUT;
+    }
+}
+ 
+static Throttle_CalState_t CalFinish(Throttle_Cal_t *cal, Throttle_CalResult_t r)
+{
+    cal->result = r;
+    cal->state  = (r == THR_CAL_OK) ? THR_CALSTEP_DONE : THR_CALSTEP_FAILED;
+    return cal->state;
+}
+ 
+Throttle_CalState_t Throttle_CalStep(Throttle_Cal_t *cal, Throttle_t *thr, uint32_t now_ms,
+                                     float angle_deg, uint8_t angle_valid)
+{
+    float mean;
+    float resultant;
+
+    if (cal->state != THR_CALSTEP_SAMPLING)
+    {
+        return cal->state;
+    }
+ 
+    if ((uint32_t)(now_ms - cal->start_ms) >= cal->timeout_ms)
+    {
+        return CalFinish(cal, THR_CAL_TIMEOUT);
+    }
+ 
+    if ((uint32_t)(now_ms - cal->last_ms) < cal->interval_ms)
+    {
+        return THR_CALSTEP_SAMPLING;
+    }
+    cal->last_ms = now_ms;
+ 
+    if ((angle_valid != 0U) && (IsFinite(angle_deg) != 0U))
+    {
+        Throttle_AvgAdd(&cal->avg, angle_deg);      /* chỉ nhận mẫu hợp lệ */
+    }
+ 
+    if (cal->avg.count < cal->samples_needed)
+    {
+        return THR_CALSTEP_SAMPLING;
+    }
+ 
+    /* Đủ mẫu: kiểm tra tay ga có đứng yên không. Độ dài vector trung bình R gần 1 khi
+     * các mẫu cùng hướng; R >= cos(độ lệch cho phép) tương đương độ lệch chuẩn <= ngưỡng. */
+    resultant = sqrtf((cal->avg.sum_sin * cal->avg.sum_sin) +
+                      (cal->avg.sum_cos * cal->avg.sum_cos)) / (float)cal->avg.count;
+    if (resultant < cosf(THR_CAL_MAX_SPREAD_DEG * (THR_PI / 180.0f)))
+    {
+        return CalFinish(cal, THR_CAL_UNSTABLE);
+    }
+ 
+    if (Throttle_AvgGet(&cal->avg, &mean) == 0U)
+    {
+        return CalFinish(cal, THR_CAL_NOT_READY);
+    }
+ 
+    return CalFinish(cal, (cal->point == THR_POINT_CLOSED) ? Throttle_SetClosed(thr, mean)
+                                                            : Throttle_SetOpen(thr, mean));
+}
+ 
