@@ -17,8 +17,9 @@ extern "C" {
  *    3) Throttle_CommitCalibration()  (tự nhận chiều quay từ 2 điểm trên)
  *  Hoặc nạp lại từ flash: Throttle_LoadCalibration(closed, open).
  *
- *  Góc đưa vào nên là giá trị trung bình nhiều mẫu (dùng Throttle_Avg_t để
- *  lấy trung bình đúng khi góc nằm gần mốc 0°/360°).
+ *  Việc lấy mẫu và lấy trung bình (đúng khi góc gần mốc 0°/360°) do
+ *  Throttle_CalBegin() + Throttle_CalStep() làm sẵn; không cần tự gọi
+ *  Throttle_AvgAdd().
  * ========================================================================== */
 
 typedef enum
@@ -35,7 +36,9 @@ typedef enum
     THR_CAL_BAD_INPUT,          /* góc là NaN/vô hạn                                      */
     THR_CAL_NOT_READY,          /* thiếu điểm đóng hoặc điểm mở                           */
     THR_CAL_SPAN_TOO_SMALL,     /* hành trình quá nhỏ                                     */
-    THR_CAL_SPAN_TOO_LARGE      /* hành trình quá lớn (từ 180° trở lên thì không xác định) */
+    THR_CAL_SPAN_TOO_LARGE,     /* hành trình quá lớn (từ 180° trở lên thì không xác định) */
+    THR_CAL_UNSTABLE,           /* góc dao động quá nhiều khi lấy mẫu (tay ga đang di chuyển) */
+    THR_CAL_TIMEOUT             /* hết thời gian mà chưa đủ mẫu hợp lệ                     */
 } Throttle_CalResult_t;
 
 typedef struct
@@ -77,6 +80,36 @@ typedef struct
     uint16_t count;
 } Throttle_Avg_t;
 
+/* ---- Lấy mẫu hiệu chỉnh không chặn ---------------------------------------- */
+#define THR_CAL_MAX_SPREAD_DEG   2.0f   /* độ lệch chuẩn góc tối đa khi lấy mẫu (độ) */
+
+typedef enum
+{
+    THR_POINT_CLOSED = 0,
+    THR_POINT_OPEN
+} Throttle_Point_t;
+
+typedef enum
+{
+    THR_CALSTEP_IDLE = 0,       /* chưa bắt đầu                                    */
+    THR_CALSTEP_SAMPLING,       /* đang lấy mẫu                                    */
+    THR_CALSTEP_DONE,           /* xong, điểm đã được ghi vào Throttle_t           */
+    THR_CALSTEP_FAILED          /* thất bại, xem lý do ở cal->result               */
+} Throttle_CalState_t;
+
+typedef struct
+{
+    Throttle_Avg_t       avg;
+    Throttle_CalState_t  state;
+    Throttle_Point_t     point;
+    Throttle_CalResult_t result;    /* hợp lệ khi state = DONE hoặc FAILED */
+    uint16_t             samples_needed;
+    uint32_t             interval_ms;
+    uint32_t             timeout_ms;
+    uint32_t             start_ms;
+    uint32_t             last_ms;
+} Throttle_Cal_t;
+
 void Throttle_ConfigDefault(Throttle_Config_t *cfg);
 
 /* cfg = NULL: dùng cấu hình mặc định. Trả về 0 nếu cấu hình hợp lệ, khác 0 nếu sai
@@ -87,6 +120,21 @@ Throttle_CalResult_t Throttle_SetClosed(Throttle_t *thr, float angle_deg);
 Throttle_CalResult_t Throttle_SetOpen(Throttle_t *thr, float angle_deg);
 Throttle_CalResult_t Throttle_CommitCalibration(Throttle_t *thr);
 Throttle_CalResult_t Throttle_LoadCalibration(Throttle_t *thr, float closed_deg, float open_deg);
+
+/* Bắt đầu lấy mẫu cho một điểm (đóng hoặc mở hết). Giữ tay ga đứng yên.
+ * samples: số mẫu hợp lệ cần lấy; interval_ms: khoảng cách giữa 2 mẫu;
+ * timeout_ms: quá thời gian này mà chưa đủ mẫu thì thất bại.
+ * Yêu cầu timeout_ms > (samples - 1) * interval_ms; nếu không thì không bao giờ đủ mẫu
+ * kịp, và CalBegin đặt ngay state = FAILED, result = THR_CAL_BAD_INPUT. */
+void Throttle_CalBegin(Throttle_Cal_t *cal, Throttle_Point_t point, uint16_t samples,
+                       uint32_t interval_ms, uint32_t timeout_ms, uint32_t now_ms);
+
+/* Gọi liên tục trong vòng lặp chính (không chặn). Hàm tự gọi Throttle_AvgAdd()
+ * mỗi interval_ms khi angle_valid = 1; đủ mẫu thì tự tính trung bình và ghi vào
+ * thr bằng Throttle_SetClosed()/Throttle_SetOpen(). Sau khi cả 2 điểm DONE thì
+ * gọi Throttle_CommitCalibration(). */
+Throttle_CalState_t Throttle_CalStep(Throttle_Cal_t *cal, Throttle_t *thr, uint32_t now_ms,
+                                     float angle_deg, uint8_t angle_valid);
 
 /* Gọi mỗi khi có góc mới (hoặc mỗi vòng lặp). angle_valid = 1 chỉ khi
  * TLE5014_ReadAngle() trả về TLE5014_OK. Khi không hợp lệ thì valid = 0 và
@@ -102,4 +150,4 @@ uint8_t Throttle_AvgGet(const Throttle_Avg_t *avg, float *angle_deg);
 }
 #endif
 
-#endif /* THROTTLE_H */
+#endif /* THROTTLE_H */ 
