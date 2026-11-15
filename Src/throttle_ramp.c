@@ -90,8 +90,7 @@ void ThrRamp_Reset(ThrRamp_t *r)
     ClearState(r);
 }
 
-uint8_t ThrRamp_Init(ThrRamp_t *r,
-                     const ThrRamp_Config_t *cfg)
+uint8_t ThrRamp_Init(ThrRamp_t *r, const ThrRamp_Config_t *cfg)
 {
     uint8_t err = 0U;
 
@@ -119,10 +118,7 @@ uint8_t ThrRamp_Init(ThrRamp_t *r,
     return err;
 }
 
-uint8_t ThrRamp_Update(ThrRamp_t *r,
-                       float target,
-                       uint8_t input_valid,
-                       uint32_t now_ms)
+uint8_t ThrRamp_Update(ThrRamp_t *r, float target, uint8_t input_valid, uint32_t now_ms)
 {
     uint32_t dt_ms;
 
@@ -133,31 +129,23 @@ uint8_t ThrRamp_Update(ThrRamp_t *r,
     if (r == NULL)
         return 0U;
 
-    /*
-     * Mất tín hiệu hoặc dữ liệu không phải số:
-     * yêu cầu đầu ra về 0 ngay.
-     */
+    // Mất tín hiệu hoặc dữ liệu không phải số: yêu cầu đầu ra về 0 ngay.
     if ((input_valid == 0U) || !isfinite(target))
     {
         ClearState(r);
         return 0U;
     }
 
-    /*
-     * Giữ tương thích với API hiện tại.
-     */
+    // Giữ tương thích với API hiện tại.
     target = Clamp(target, 0.0f, 100.0f);
 
-    /*
-     * Lần đầu khởi tạo:
-     *
-     * Không Seed(target).
-     * Bắt đầu từ 0% để tránh lệnh ga nhảy lên
-     * ngay khi module được khởi động.
-     *
-     * Safety State Machine vẫn phải kiểm tra
-     * điều kiện khởi động và cho phép hoạt động.
-     */
+
+    // Lần đầu khởi tạo:
+ 
+    // Không Seed(target).
+    // Bắt đầu từ 0% để tránh lệnh ga nhảy lên ngay khi module được khởi động.
+    // Safety State Machine vẫn phải kiểm tra điều kiện khởi động và cho phép hoạt động.
+
     if (r->seeded == 0U)
     {
         r->y = 0.0f;
@@ -169,15 +157,10 @@ uint8_t ThrRamp_Update(ThrRamp_t *r,
         return 1U;
     }
 
-    /*
-     * Hỗ trợ tick uint32 tràn số.
-     */
+    // Hỗ trợ tick uint32 tràn số.
     dt_ms = (uint32_t)(now_ms - r->last_ms);
 
-    /*
-     * Cùng một thời điểm:
-     * không cập nhật hai lần.
-     */
+    // Cùng một thời điểm: không cập nhật hai lần.
     if (dt_ms == 0U)
     {
         return r->valid;
@@ -208,32 +191,26 @@ uint8_t ThrRamp_Update(ThrRamp_t *r,
     max_down =
         r->cfg.rate_down_percent_per_s * dt_s;
 
-    /*
-     * Giới hạn tốc độ tăng.
-     */
+
+    //Giới hạn tốc độ tăng.
     if (target > r->y + max_up)
     {
         r->y += max_up;
     }
-    /*
-     * Giới hạn tốc độ giảm.
-     */
+
+    //Giới hạn tốc độ giảm.
     else if (target < r->y - max_down)
     {
         r->y -= max_down;
     }
-    /*
-     * Target nằm trong giới hạn thay đổi:
-     * có thể bám target trực tiếp.
-     */
+
+    //Target nằm trong giới hạn thay đổi: có thể bám target trực tiếp
     else
     {
         r->y = target;
     }
 
-    /*
-     * Kiểm tra trạng thái trước khi xuất.
-     */
+    //Kiểm tra trạng thái trước khi xuất
     if (!isfinite(r->y))
     {
         ClearState(r);
