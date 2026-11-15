@@ -31,8 +31,8 @@ typedef struct
 {
     float    cutoff_hz;       /* tần số cắt IIR                    (mặc định 20 Hz)  */
     uint32_t period_ms;       /* chu kỳ lấy mẫu của bộ lọc          (mặc định 2 ms)   */
-    uint32_t max_gap_ms;      /* quá khoảng này không cập nhật thì nạp lại mẫu hiện tại
-                                 (dữ liệu cũ)                       (mặc định 50 ms)  */
+    uint32_t max_gap_ms;      /* Quá khoảng này: reset filter,
+                                output = 0, valid = 0  */
     uint8_t  median_enable;   /* 1: bật median 3 mẫu                (mặc định 1)      */
 } ThrFilter_Config_t;
 
